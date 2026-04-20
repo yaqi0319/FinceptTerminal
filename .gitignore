@@ -12,6 +12,8 @@ CMakeFiles/
 cmake_install.cmake
 CTestTestfile.cmake
 _deps/
+.qt/
+aqtinstall.log
 
 # ── Compiled binaries & libraries ───────────────────────────
 *.exe
@@ -133,3 +135,4 @@ fincept-qt/scripts/exchange/.cache/
 # ── Internal planning docs ────────────────────────────────────
 fincept-qt/docs/superpowers/
 docs/superpowers/
+

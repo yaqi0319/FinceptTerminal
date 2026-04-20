@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ── Handle Homebrew path on macOS ───────────────────────────
+if [[ "$(uname -s)" == "Darwin" ]] && ! command -v brew &>/dev/null; then
+    for brew_bin in "/opt/homebrew/bin/brew" "/usr/local/bin/brew"; do
+        if [ -x "$brew_bin" ]; then
+            eval "$($brew_bin shellenv)"
+            break
+        fi
+    done
+fi
+
 # ── Parse args ──────────────────────────────────────────────
 CI_MODE=false
 for arg in "$@"; do
@@ -25,6 +35,22 @@ NC='\033[0m'
 ok()   { echo -e "  ${GREEN}OK${NC}"; }
 fail() { echo -e "  ${RED}ERROR: $1${NC}"; exit 1; }
 info() { echo -e "  ${YELLOW}$1${NC}"; }
+
+# Helper: Find the actual Qt prefix directory (handles names like clang_64 or macos)
+find_qt_prefix() {
+    local root="$1"
+    local version="$2"
+    if [ -d "$root/$version" ]; then
+        for dir in "$root/$version/"*; do
+            [ -d "$dir" ] || continue
+            if [ -f "$dir/lib/cmake/Qt6/Qt6Config.cmake" ]; then
+                echo "$dir"
+                return 0
+            fi
+        done
+    fi
+    return 1
+}
 
 echo ""
 echo "================================================"
@@ -113,28 +139,38 @@ echo "[5/7] Locating Qt ${QT_VERSION}..."
 if [ -n "${Qt6_DIR:-}" ] && [ -f "$Qt6_DIR/lib/cmake/Qt6/Qt6Config.cmake" ]; then
     QT_PREFIX="$Qt6_DIR"
     info "Using Qt from Qt6_DIR env: $QT_PREFIX"
-elif [ -f "$QT_PREFIX/lib/cmake/Qt6/Qt6Config.cmake" ]; then
-    info "Qt ${QT_VERSION} already installed at $QT_PREFIX"
 else
-    info "Installing Qt ${QT_VERSION} via aqtinstall to $QT_INSTALL_ROOT ..."
-    # aqtinstall is a stable community tool that downloads exact Qt versions
-    # from the official Qt mirror. Much smaller than Qt Online Installer and scriptable.
-    "$PYTHON" -m pip install --user --quiet --upgrade aqtinstall
-    AQT="$("$PYTHON" -m pip show aqtinstall >/dev/null 2>&1 && "$PYTHON" -m aqt help >/dev/null 2>&1 && echo "$PYTHON -m aqt" || echo "")"
-    [ -n "$AQT" ] || fail "aqtinstall did not install correctly."
-    # Qt host/target/arch
-    if [ "$PLATFORM" = "linux" ]; then
-        AQT_HOST="linux"   ; AQT_TARGET="desktop" ; AQT_ARCH="gcc_64"
+    # Try to find existing installation
+    DETECTED_PREFIX=$(find_qt_prefix "$QT_INSTALL_ROOT" "$QT_VERSION" || true)
+    
+    if [ -n "$DETECTED_PREFIX" ]; then
+        QT_PREFIX="$DETECTED_PREFIX"
+        info "Qt ${QT_VERSION} already installed at $QT_PREFIX"
     else
-        AQT_HOST="mac"     ; AQT_TARGET="desktop" ; AQT_ARCH="clang_64"
+        info "Installing Qt ${QT_VERSION} via aqtinstall to $QT_INSTALL_ROOT ..."
+        # aqtinstall is a stable community tool that downloads exact Qt versions
+        # from the official Qt mirror. Much smaller than Qt Online Installer and scriptable.
+        "$PYTHON" -m pip install --user --quiet --upgrade aqtinstall
+        AQT="$("$PYTHON" -m pip show aqtinstall >/dev/null 2>&1 && "$PYTHON" -m aqt help >/dev/null 2>&1 && echo "$PYTHON -m aqt" || echo "")"
+        [ -n "$AQT" ] || fail "aqtinstall did not install correctly."
+        
+        # Qt host/target/arch
+        if [ "$PLATFORM" = "linux" ]; then
+            AQT_HOST="linux"   ; AQT_TARGET="desktop" ; AQT_ARCH="gcc_64"
+        else
+            AQT_HOST="mac"     ; AQT_TARGET="desktop" ; AQT_ARCH="clang_64"
+        fi
+        
+        # Modules required to compile Fincept (match find_package COMPONENTS)
+        AQT_MODULES="qtcharts qtwebsockets qtmultimedia qtspeech"
+        $AQT install-qt "$AQT_HOST" "$AQT_TARGET" "$QT_VERSION" "$AQT_ARCH" \
+            --outputdir "$QT_INSTALL_ROOT" \
+            --modules $AQT_MODULES \
+            || fail "aqtinstall failed. Check internet connection."
+
+        # Re-detect after install (handles aqt logic naming differences like 'macos' vs 'clang_64')
+        QT_PREFIX=$(find_qt_prefix "$QT_INSTALL_ROOT" "$QT_VERSION" || fail "Qt install completed but Qt6Config.cmake not found in $QT_INSTALL_ROOT/$QT_VERSION")
     fi
-    # Modules required to compile Fincept (match find_package COMPONENTS)
-    AQT_MODULES="qtcharts qtwebsockets qtmultimedia qtspeech"
-    $AQT install-qt "$AQT_HOST" "$AQT_TARGET" "$QT_VERSION" "$AQT_ARCH" \
-        --outputdir "$QT_INSTALL_ROOT" \
-        --modules $AQT_MODULES \
-        || fail "aqtinstall failed. Check internet connection or install Qt ${QT_VERSION} manually from https://www.qt.io/download-qt-installer"
-    [ -f "$QT_PREFIX/lib/cmake/Qt6/Qt6Config.cmake" ] || fail "Qt install completed but Qt6Config.cmake not found at $QT_PREFIX"
 fi
 export CMAKE_PREFIX_PATH="$QT_PREFIX${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
 echo "  CMAKE_PREFIX_PATH=$QT_PREFIX"
