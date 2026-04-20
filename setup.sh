@@ -94,7 +94,7 @@ elif [ "$PLATFORM" = "macos" ]; then
         info "Homebrew not found. Installing..."
         /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
     fi
-    brew install cmake ninja python@3.11
+    brew install cmake ninja python@3.11 openssl@3 yt-dlp
 fi
 ok
 
@@ -182,9 +182,22 @@ APP_DIR="$SCRIPT_DIR/fincept-qt"
 cd "$APP_DIR"
 
 echo "[6/7] Configuring (preset: $PRESET)..."
+# Detect OpenSSL path (especially for Homebrew on Apple Silicon)
+OPENSSL_PATH=""
+if [[ "$PLATFORM" == "macos" ]]; then
+    for path in "/opt/homebrew/opt/openssl@3" "/usr/local/opt/openssl@3"; do
+        if [ -d "$path" ]; then
+            OPENSSL_PATH="$path"
+            break
+        fi
+    done
+fi
+
 # Override the preset's default CMAKE_PREFIX_PATH with the one we just set,
 # so the build picks up the aqtinstall location rather than ~/Qt/6.8.3/...
-cmake --preset "$PRESET" -DCMAKE_PREFIX_PATH="$QT_PREFIX" \
+cmake --preset "$PRESET" \
+    -DCMAKE_PREFIX_PATH="$QT_PREFIX" \
+    ${OPENSSL_PATH:+-DOPENSSL_ROOT_DIR="$OPENSSL_PATH"} \
     || fail "CMake configure failed. See error above."
 ok
 

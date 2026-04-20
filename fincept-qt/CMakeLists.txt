@@ -283,19 +283,20 @@ FetchContent_MakeAvailable(QGeoView)
 # QGeoView has anonymous-namespace symbol clashes under unity build
 set_target_properties(qgeoview PROPERTIES UNITY_BUILD OFF)
 
-# Qt 6.8.3's QtGui on macOS carries a transitive "-framework AGL" in its link
-# interface. Apple removed AGL in macOS 14 (Sonoma), so the link fails on 14+
-# with: ld: framework 'AGL' not found. Scrub AGL from qgeoview's resolved link
-# libraries on Apple — OpenGL framework (also in Qt's interface) is sufficient.
-# See GitHub issue #140.
-if(APPLE)
-    foreach(_prop LINK_LIBRARIES INTERFACE_LINK_LIBRARIES)
-        get_target_property(_libs qgeoview ${_prop})
-        if(_libs)
-            list(REMOVE_ITEM _libs "-framework AGL" "AGL")
-            set_target_properties(qgeoview PROPERTIES ${_prop} "${_libs}")
-        endif()
-    endforeach()
+# macOS 14+ / Xcode 15+ removes the AGL framework. Qt6's WrapOpenGL target (pulled in
+# by Qt6::Gui) hardcodes a fallback to `-framework AGL` if it isn't found on the system.
+# We strip it from the INTERFACE_LINK_LIBRARIES to prevent `ld: framework 'AGL' not found`.
+if(APPLE AND TARGET WrapOpenGL::WrapOpenGL)
+    get_target_property(_gl_libs WrapOpenGL::WrapOpenGL INTERFACE_LINK_LIBRARIES)
+    if(_gl_libs)
+        set(_new_gl_libs "")
+        foreach(_lib IN LISTS _gl_libs)
+            if(NOT _lib MATCHES "AGL")
+                list(APPEND _new_gl_libs "${_lib}")
+            endif()
+        endforeach()
+        set_target_properties(WrapOpenGL::WrapOpenGL PROPERTIES INTERFACE_LINK_LIBRARIES "${_new_gl_libs}")
+    endif()
 endif()
 
 # ── SingleApplication (single-process enforcement + new-window IPC) ──────────
