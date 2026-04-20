@@ -56,7 +56,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # ── Build performance ─────────────────────────────────────────────────────────
 # Unity build for infrastructure layers (safe — no local symbol conflicts)
 # Screens are excluded below via SKIP_UNITY_BUILD_INCLUSION (too many local statics/functions)
-set(CMAKE_UNITY_BUILD ON)
+set(CMAKE_UNITY_BUILD OFF)
 # Batch size 14: sweet spot for MSVC — keeps each unity TU under ~30s to compile.
 # 32 was too large: one TU change forced a 32-file recompile; 14 limits blast radius.
 set(CMAKE_UNITY_BUILD_BATCH_SIZE 14)
